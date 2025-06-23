@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pydantic==2.6.4 # Specific version to avoid breaking changes if any
+pydantic-settings # For BaseSettings
+openai
+transformers
+keybert
+torch # Required by transformers for models
+sentence-transformers # Required by KeyBERT
+redis # For Redis consumer
+python-dotenv
+httpx # For testing FastAPI client
+pytest # For unit/integration tests
+pytest-asyncio # For async tests
+requests # For worker to call back Laravel

@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # Laravel Backend Service
+  app:
+    build:
+      context: ./laravel-backend
+      dockerfile: Dockerfile
+    container_name: laravel_app
+    ports:
+      - "8000:80"
+    volumes:
+      - ./laravel-backend:/var/www/html
+    depends_on:
+      - db
+      - redis
+      # 'worker' is not a direct dependency for app startup, but relies on it for callbacks.
+    environment:
+      WAIT_HOSTS: db:3306, redis:6379
+      APP_ENV: ${APP_ENV}
+      APP_DEBUG: ${APP_DEBUG}
+      APP_URL: ${APP_URL}
+      DB_CONNECTION: ${DB_CONNECTION}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      QUEUE_CONNECTION: ${QUEUE_CONNECTION}
+      REDIS_QUEUE_NAME_FASTAPI: ${REDIS_QUEUE_NAME_FASTAPI} # Laravel needs to know FastAPI's queue name
+      # Internal URL for worker to update Laravel. 'app' is the service name.
+      LARAVEL_INTERNAL_UPDATE_URL: http://app/api/internal/analysis/update
+      APP_KEY: ${APP_KEY}
+
+  # MySQL Database Service
+  db:
+    image: mysql:8.0
+    container_name: mysql_db
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - dbdata:/var/lib/mysql
+
+  # Redis Service (for Laravel Queue & FastAPI Worker Queue)
+  redis:
+    image: redis:latest
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+
+  # FastAPI AI Worker Service (Running as a Redis Queue Consumer)
+  worker:
+    build:
+      context: ./fastapi-worker
+      dockerfile: Dockerfile
+    container_name: fastapi_worker
+    # Expose port only for direct health check or debugging, not for primary communication
+    ports:
+      - "8001:8001" # For /health and /analyze_sync endpoints if needed
+    volumes:
+      - ./fastapi-worker:/app
+      - ./fastapi-worker/app/data:/app/data # Ensure data is accessible
+    depends_on: # Worker depends on Redis
+      - redis
+    environment:
+      # Pass through environment variables for AI models and Redis connection
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_DB: ${REDIS_DB}
+      REDIS_QUEUE_NAME: ${REDIS_QUEUE_NAME}
+      # AI Model Configuration
+      SUMMARIZER_MODEL_TYPE: ${SUMMARIZER_MODEL_TYPE}
+      SENTIMENT_MODEL_TYPE: ${SENTIMENT_MODEL_TYPE}
+      KEYWORD_EXTRACTOR_TYPE: ${KEYWORD_EXTRACTOR_TYPE}
+      INTENT_RECOGNIZER_TYPE: ${INTENT_RECOGNIZER_TYPE}
+      SENTIMENT_MODEL_NAME: ${SENTIMENT_MODEL_NAME}
+      # Worker needs to call Laravel app, 'app' is the service name
+      LARAVEL_INTERNAL_UPDATE_URL: http://app/api/internal/analysis/update
+    command: python app/consumer.py # Run the Redis consumer daemon
+
+  # Vue.js Frontend Service (Development Mode)
+  frontend:
+    build:
+      context: ./vue-frontend
+      dockerfile: Dockerfile
+    container_name: vue_frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./vue-frontend:/app
+      - /app/node_modules # Important: This line prevents host's node_modules from overwriting container's, preserving container dependencies.
+    environment:
+      VITE_APP_API_URL: ${VITE_APP_API_URL}
+    command: npm run dev # Or pnpm run dev / yarn dev
+
+# Volumes for data persistence
+volumes:
+  dbdata:
